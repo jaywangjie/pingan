@@ -20,7 +20,7 @@ NIC_NAME="${NIC_NAME:-eth0}"
 
 # ---- 模型权重 ---------------------------------------------------------------
 # SFS Turbo 共享存储上的权重目录（五台挂载同一路径）。
-# A3 上机权重应为 Ascend 量化版（w4a8 或 w8a8），按实际目录名修改。
+# 当前使用 ModelScope 预转换的昇腾 W8A8 量化权重，无需再做量化转换。
 MODEL_PATH="${MODEL_PATH:-/mnt/sfs_turbo/models/DeepSeek-V4.1-Flash-1017-w8a8}"
 
 # 权重量化方式：
