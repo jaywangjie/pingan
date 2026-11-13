@@ -17,18 +17,14 @@ cd /
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-echo "[INFO] 从 GitHub 拉取最新部署包 ..."
-git clone -q "$REPO" "$TMP/pa"
+echo "[INFO] 从 GitHub 拉取最新部署包（浅克隆）..."
+git clone -q --depth 1 "$REPO" "$TMP/pa"
 COMMIT=$(git -C "$TMP/pa" rev-parse --short HEAD)
 
-mkdir -p "$DEPLOY_PARENT"
-# SFS 删除有延迟，rmdir 可能报 Directory not empty：重试两次，仍残留则容忍
-rm -rf "$DEPLOY_PARENT/dsv41-4p1d" 2>/dev/null || true
-sleep 1
-rm -rf "$DEPLOY_PARENT/dsv41-4p1d" 2>/dev/null || true
-
-# 直接落新副本（若旧目录因 SFS 延迟仍残留，cp 会覆盖合并，无碍）
-cp -r "$TMP/pa/dsv41-4p1d" "$DEPLOY_PARENT/"
+# 注意：只覆盖合并，绝不删除目标目录——
+# 引擎运行时工作目录/日志在部署目录内，rm -rf 会因 .nfs 占用失败并破坏现场
+mkdir -p "$DEPLOY_PARENT/dsv41-4p1d"
+cp -r "$TMP/pa/dsv41-4p1d/." "$DEPLOY_PARENT/dsv41-4p1d/"
 chmod +x "$DEPLOY_PARENT"/dsv41-4p1d/*.sh \
          "$DEPLOY_PARENT"/dsv41-4p1d/prefill/*.sh \
          "$DEPLOY_PARENT"/dsv41-4p1d/decode/*.sh \
