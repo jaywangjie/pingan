@@ -21,7 +21,8 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$DEPLOY_DIR/config.sh"
 
 NIC_NAME="${NIC_NAME:?set NIC_NAME in config.sh}"
-LOCAL_IP="${LOCAL_IP:-$(ip -4 addr show "$NIC_NAME" | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)}"
+# LOCAL_IP 由 start_decode_node.sh 识别后传入；兜底取 hostname -I 第一项
+LOCAL_IP="${LOCAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 MODEL_PATH="${MODEL_PATH:?set MODEL_PATH in config.sh}"
 
 # ---- 代理豁免：五台节点互访不走代理 ----------------------------------------

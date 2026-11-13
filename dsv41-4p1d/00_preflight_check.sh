@@ -13,14 +13,14 @@ PASS=0; WARN=0; FAIL=0
 ok()   { echo "  [PASS] $*"; PASS=$((PASS+1)); }
 warn() { echo "  [WARN] $*"; WARN=$((WARN+1)); }
 bad()  { echo "  [FAIL] $*"; FAIL=$((FAIL+1)); }
-head() { echo; echo "==== $* ===="; }
+section() { echo; echo "==== $* ===="; }
 
 LOCAL_IP=""
 for ip in "$P1_IP" "$P2_IP" "$P3_IP" "$P4_IP" "$D1_IP"; do
     ip -4 addr | grep -qw "$ip" && LOCAL_IP="$ip" && break
 done
 
-head "1. 本机识别"
+section "1. 本机识别"
 if [ -n "$LOCAL_IP" ]; then
     ok "本机 IP：$LOCAL_IP"
 else
@@ -28,7 +28,7 @@ else
     ip -4 addr | grep inet
 fi
 
-head "2. NPU 设备（预期 16 个逻辑设备）"
+section "2. NPU 设备（预期 16 个逻辑设备）"
 if command -v npu-smi >/dev/null 2>&1; then
     NPU_COUNT=$(npu-smi info -l 2>/dev/null | grep -c "Total Count" || true)
     DAVINCI_COUNT=$(ls /dev/davinci[0-9]* 2>/dev/null | wc -l)
@@ -42,12 +42,12 @@ else
     bad "未找到 npu-smi 命令，驱动未安装或不在 PATH"
 fi
 
-head "3. 内存（Engram 驻留约 196GB + 加载缓冲，建议 ≥1.5TB）"
+section "3. 内存（Engram 驻留约 196GB + 加载缓冲，建议 ≥1.5TB）"
 free -g | head -3
 MEM_GB=$(free -g | awk '/^Mem:/{print $2}')
 [ "${MEM_GB:-0}" -ge 1500 ] && ok "内存 ${MEM_GB}GB" || warn "内存 ${MEM_GB}GB，低于建议值 1.5TB"
 
-head "4. SFS Turbo 共享存储与权重"
+section "4. SFS Turbo 共享存储与权重"
 if mountpoint -q /mnt/sfs_turbo 2>/dev/null || [ -d /mnt/sfs_turbo ]; then
     ok "/mnt/sfs_turbo 存在"
     df -h /mnt/sfs_turbo | tail -1
@@ -72,7 +72,7 @@ else
     bad "/mnt/sfs_turbo 不存在或未挂载"
 fi
 
-head "5. 端口占用（应全部空闲）"
+section "5. 端口占用（应全部空闲）"
 BUSY=0
 for port in "$DP_RPC_PORT" 9000 7100 7101 7102 7103 7104 7105 7106 7107; do
     if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ":$port$"; then
@@ -82,7 +82,7 @@ for port in "$DP_RPC_PORT" 9000 7100 7101 7102 7103 7104 7105 7106 7107; do
 done
 [ "$BUSY" -eq 0 ] && ok "12321/7100-7107/9000 均空闲"
 
-head "6. 防火墙（需放行 12321、7100-7107、30000-30099、30100-30199、9000）"
+section "6. 防火墙（需放行 12321、7100-7107、30000-30099、30100-30199、9000）"
 if systemctl is-active firewalld >/dev/null 2>&1; then
     warn "firewalld 运行中，请确认已放行上述端口："
     firewall-cmd --list-ports 2>/dev/null
@@ -92,7 +92,7 @@ else
     ok "未检测到活跃防火墙"
 fi
 
-head "7. 节点互通（ping 其余 4 台）"
+section "7. 节点互通（ping 其余 4 台）"
 for ip in "$P1_IP" "$P2_IP" "$P3_IP" "$P4_IP" "$D1_IP"; do
     [ "$ip" = "$LOCAL_IP" ] && continue
     if ping -c 1 -W 2 "$ip" >/dev/null 2>&1; then
@@ -102,7 +102,7 @@ for ip in "$P1_IP" "$P2_IP" "$P3_IP" "$P4_IP" "$D1_IP"; do
     fi
 done
 
-head "8. 网卡（$NIC_NAME 应承载 192.168.0.x 业务 IP）"
+section "8. 网卡（$NIC_NAME 应承载 192.168.0.x 业务 IP）"
 if ip link show "$NIC_NAME" >/dev/null 2>&1; then
     NIP=$(ip -4 addr show "$NIC_NAME" | awk '/inet /{print $2}' | head -1)
     if [ -n "$NIP" ]; then
@@ -115,7 +115,7 @@ else
     ip -4 -o addr | awk '{print $2, $4}'
 fi
 
-head "9. Docker"
+section "9. Docker"
 if command -v docker >/dev/null 2>&1; then
     ok "docker $(docker --version 2>/dev/null | awk '{print $3}' | tr -d ,)"
     if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "^$IMAGE$"; then

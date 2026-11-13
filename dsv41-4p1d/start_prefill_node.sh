@@ -11,11 +11,13 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DEPLOY_DIR/config.sh"
 
 # ---- 识别本机是否为 Prefill 节点 -------------------------------------------
+# 容器内可能没有 ip 命令，hostname -I 兜底
+LOCAL_IPS="$({ hostname -I 2>/dev/null || true; ip -4 addr 2>/dev/null | awk '/inet /{print $2}'; } | tr ' ' '\n' | cut -d/ -f1 | grep -v '^$' | sort -u)"
 LOCAL_IP=""
 ROLE=""
 for entry in "P1:$P1_IP" "P2:$P2_IP" "P3:$P3_IP" "P4:$P4_IP" "D1:$D1_IP"; do
     ip="${entry#*:}"
-    if ip -4 addr | grep -qw "$ip"; then
+    if echo "$LOCAL_IPS" | grep -qx "$ip"; then
         LOCAL_IP="$ip"
         ROLE="${entry%%:*}"
         break
@@ -23,7 +25,7 @@ for entry in "P1:$P1_IP" "P2:$P2_IP" "P3:$P3_IP" "P4:$P4_IP" "D1:$D1_IP"; do
 done
 if [ -z "$LOCAL_IP" ]; then
     echo "[ERROR] 本机 IP 不在 config.sh 的节点列表中，请检查网络或配置。" >&2
-    ip -4 addr
+    echo "本机当前 IP 列表：$(echo $LOCAL_IPS | tr '\n' ' ')" >&2
     exit 1
 fi
 if [ "$ROLE" != "P1" ] && [ "$ROLE" != "P2" ] && [ "$ROLE" != "P3" ] && [ "$ROLE" != "P4" ]; then

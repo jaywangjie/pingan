@@ -167,3 +167,18 @@ bash verify_service.sh image    # 多模态请求（需 IMAGE_URL 可访问）
 **Q: 200 并发下 TPOT 超标？**
 POC §1.3/§7：单台 D 在 96–135 路内满足 30ms，200 路预计 44–63ms，
 按容量报告；如 200 路 × 30ms 是硬指标，按 POC §7 切 3P2D。
+
+**Q: import / vllm --version 报 ERR99999？**
+按层定位（容器内执行）：
+
+```bash
+python3 -c "import torch_npu"                                   # 第 1 层：CANN 运行时
+python3 -c "import torch, torch_npu; print(torch.npu.device_count())"  # 第 2 层：设备初始化
+ls -l /dev/davinci0 /dev/davinci15 /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc  # 三类设备缺一不可
+npu-smi info | head -8                                          # 驱动版本（五台必须一致）
+cat /etc/ascend_install.info
+```
+
+- 第 1 层就崩 → 宿主机驱动/固件与镜像内 CANN 版本不匹配，升级驱动或换匹配镜像 tag
+- device_count=0 → `env | grep ASCEND` 检查 ASCEND_RT_VISIBLE_DEVICES 是否被错误设置
+- 设备文件缺失 → 容器未按 01_start_container.sh 的完整 --device 列表启动，docker inspect 核对
