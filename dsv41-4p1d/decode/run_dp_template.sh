@@ -70,7 +70,6 @@ vllm serve "$MODEL_PATH" \
     --async-scheduling \
     --block-size 128 \
     --no-enable-prefix-caching \
-    --no-swa-bounded-replay \
     --trust-remote-code \
     --tokenizer-mode deepseek_v41 \
     --reasoning-parser deepseek_v41 \
