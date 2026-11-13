@@ -41,8 +41,10 @@ python3 -c "import torch, torch_npu; print('  npu device_count =', torch.npu.dev
     || bad "NPU 运行时初始化失败（ERR99999，见 README FAQ）"
 python3 -c "import vllm; print('  vllm', vllm.__version__)" 2>/dev/null \
     && ok "vllm 包导入正常" || bad "vllm 包导入失败"
-python3 -c "import vllm_ascend; print('  vllm_ascend', vllm_ascend.__version__)" 2>/dev/null \
+python3 -c "import vllm_ascend" 2>/dev/null \
     && ok "vllm_ascend 导入正常" || bad "vllm_ascend 导入失败"
+python3 -c "import importlib.metadata as m; print('  vllm-ascend 包版本:', m.version('vllm-ascend'))" 2>/dev/null \
+    && ok "vllm-ascend 版本可读" || warn "无法读取 vllm-ascend 包版本（不影响部署）"
 
 section "3. 权重可见（容器内路径与宿主机一致）"
 if [ -f "$MODEL_PATH/config.json" ]; then
