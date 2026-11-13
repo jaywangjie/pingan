@@ -11,8 +11,9 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DEPLOY_DIR/config.sh"
 
 # ---- 识别本机是否为 Prefill 节点 -------------------------------------------
-# 容器内可能没有 ip 命令，hostname -I 兜底
-LOCAL_IPS="$({ hostname -I 2>/dev/null || true; ip -4 addr 2>/dev/null | awk '/inet /{print $2}'; } | tr ' ' '\n' | cut -d/ -f1 | grep -v '^$' | sort -u)"
+# 容器内可能没有 ip 命令，hostname -I 兜底；所有分支 || true 兜底，
+# 避免 pipefail 把"命令不存在"的 127 传给整条管道触发 set -e 静默退出
+LOCAL_IPS="$({ hostname -I 2>/dev/null || true; { ip -4 addr 2>/dev/null | awk '/inet /{print $2}'; } || true; } | tr ' ' '\n' | cut -d/ -f1 | grep -v '^$' | sort -u || true)"
 LOCAL_IP=""
 ROLE=""
 for entry in "P1:$P1_IP" "P2:$P2_IP" "P3:$P3_IP" "P4:$P4_IP" "D1:$D1_IP"; do
