@@ -18,12 +18,14 @@ source "$SCRIPT_DIR/config.sh"
 MODE="${1:-all}"
 PROXY_IP="${PROXY_IP:-$P1_IP}"          # 代理所在机器 IP，按实际修改
 SERVICE_URL="http://$PROXY_IP:$PROXY_PORT"
-CURL="curl -sS --noproxy *"
+
+# 用函数而非变量存 curl 命令：变量展开会让 --noproxy * 被 glob 成文件名
+curlx() { curl -sS --noproxy '*' "$@"; }
 
 check_engine() {
     local ip=$1 port=$2
     local code
-    code=$($CURL -o /dev/null -w '%{http_code}' "http://$ip:$port/health" 2>/dev/null || echo 000)
+    code=$(curlx -s -o /dev/null -w '%{http_code}' "http://$ip:$port/health" 2>/dev/null || echo 000)
     if [ "$code" = "200" ]; then
         echo "  [ OK ] $ip:$port"
         return 0
@@ -65,15 +67,15 @@ wait_ready() {
 check_proxy() {
     echo "==== PD 代理 $SERVICE_URL ===="
     echo "-- /healthcheck:"
-    $CURL -w '\nHTTP %{http_code}\n' "$SERVICE_URL/healthcheck"
+    curlx -w '\nHTTP %{http_code}\n' "$SERVICE_URL/healthcheck"
     echo "-- /v1/models:"
-    $CURL "$SERVICE_URL/v1/models"
+    curlx "$SERVICE_URL/v1/models"
     echo
 }
 
 smoke_text() {
     echo "==== 文本冒烟请求（$SERVICE_URL）===="
-    $CURL -w '\nHTTP %{http_code}\n' "$SERVICE_URL/v1/chat/completions" \
+    curlx -w '\nHTTP %{http_code}\n' "$SERVICE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
       -d '{
         "model": "'"$SERVED_MODEL_NAME"'",
@@ -87,7 +89,7 @@ smoke_text() {
 smoke_image() {
     echo "==== 多模态冒烟请求（$SERVICE_URL）===="
     local image_url="${IMAGE_URL:-https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg}"
-    $CURL -w '\nHTTP %{http_code}\n' "$SERVICE_URL/v1/chat/completions" \
+    curlx -w '\nHTTP %{http_code}\n' "$SERVICE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
       -d '{
         "model": "'"$SERVED_MODEL_NAME"'",
