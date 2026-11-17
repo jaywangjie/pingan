@@ -30,7 +30,7 @@ echo "=============================================="
 echo " 1P1D+KVPool  Prefill： $LOCAL_IP"
 echo " 布局：        DP${PREFILL_DP_SIZE} / TP${PREFILL_TP_SIZE}（16 逻辑设备）"
 echo " API 端口：    ${ENGINE_START_PORT}-$((ENGINE_START_PORT + PREFILL_DP_SIZE - 1))"
-echo " KV Pool：     $MOONCAKE_CONFIG_PATH"
+echo " KV Pool：     ${MOONCAKE_CONFIG_PATH:-$DEPLOY_DIR/kv_pool/mooncake.json}"
 echo " 模型：        $MODEL_PATH"
 echo "=============================================="
 
