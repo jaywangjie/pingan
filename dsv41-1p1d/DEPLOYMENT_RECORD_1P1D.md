@@ -142,6 +142,7 @@ Call new_client->Connect(timeout_in_millis) fail. Failed to connect client,
 | worker 改名 | `pkill -f "vllm serve"` 杀不到 worker（proctitle 已改为 `VLLM::Worker`） | `pkill -9 -f "VLLM::Worker"` |
 | git 慢 | GitHub HTTP/2 链路不稳 | codeload tarball 直下：`curl -L https://codeload.github.com/jaywangjie/pingan/tar.gz/refs/heads/main` |
 | master 端口占用 | 重启报 9003 Address already in use | 先 `pkill -f mooncake_master` |
+| 代理被 master 检查误杀 | 纯 PD 回退后 `start_proxy.sh` 因 master 不可达拒绝启动 | 已修（398c03c）：检查仅在 `ENABLE_KV_POOL=1` 时生效 |
 | 代理端口占用 | 9100 bind 冲突 | 先 pkill 旧代理 |
 | SFS .nfs 幽灵 | rm 报错、update.sh 自删 | 永远 merge-copy（`cp -r src/. dst/`），引擎运行中不 rm |
 | grep 模式想当然 | 找 `-800` 用了 `retcode=-800`，实际文本是 `error_codes=[-800]` | 先看原文再定 pattern |
