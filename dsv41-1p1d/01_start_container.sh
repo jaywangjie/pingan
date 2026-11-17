@@ -17,6 +17,17 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     docker rm -f "$CONTAINER_NAME"
 fi
 
+# ---- 池化传输必需的宿主机文件（官方 pooling 要求挂载，缺失则 HCCS P2P 通道建立失败）----
+EXTRA_MOUNTS=()
+for f in /lib/route.conf /etc/hccl_rootinfo.json; do
+    if [ -f "$f" ]; then
+        EXTRA_MOUNTS+=(-v "$f:$f:ro")
+        echo "[INFO] 池化挂载：$f"
+    else
+        echo "[WARN] $f 在宿主机不存在——若启用 KV Pool，P2P 通道可能建立失败（HixlCSClientConnect timeout）" >&2
+    fi
+done
+
 echo "[INFO] 启动容器（--net=host --ipc=host，挂载 /mnt/sfs_turbo）..."
 docker run -itd \
     --name "$CONTAINER_NAME" \
@@ -50,6 +61,7 @@ docker run -itd \
     -v /etc/ascend_install.info:/etc/ascend_install.info \
     -v /etc/hccn.conf:/etc/hccn.conf \
     -v /mnt/sfs_turbo:/mnt/sfs_turbo \
+    "${EXTRA_MOUNTS[@]}" \
     "$IMAGE" bash
 
 echo
