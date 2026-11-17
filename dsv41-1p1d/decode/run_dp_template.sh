@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# DeepSeek-V4.1-Flash-1017 1P1D —— Decode 模板（DP8/TP2）【稳定版：暂关池化】
+# DeepSeek-V4.1-Flash-1017 1P1D —— Decode 模板（DP8/TP2）
 # 由 launch_online_dp.py 按 7 个位置参数调用：
 #   $1: 本 rank 可见 NPU ID（如 0,1）  $2: API 端口（8100-8107）
 #   $3: 全局 DP size（8）              $4: 全局 DP rank（0-7）
 #   $5: DP 协调地址（D 节点 IP）       $6: DP 协调端口（13321）
 #   $7: TP size（2）
-# KV Pool 排障结论与启用条件见 prefill/run_dp_template.sh 头部注释
+# KV Pool 实验矩阵见 prefill/run_dp_template.sh 头部注释。
+# 本模板池化时使用 mooncake_d.json（纯消费者 0/0，官方 11-11 配方）
 # =============================================================================
 set -euo pipefail
 unset https_proxy http_proxy
@@ -44,6 +45,52 @@ export ACL_OP_INIT_MODE=1
 # export MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=1073741824
 # export ASCEND_GLOBAL_RESOURCE_CONFIG='{"comm_resource_config.protocol_desc":["hccs:device"],"store.comm_resource_config.protocol_desc":["roce:device"]}'
 
+# ---- KV Cache Pool：按 config.sh 的 ENABLE_KV_POOL 选择连接器形态 ------------
+if [ "${ENABLE_KV_POOL:-0}" = "1" ]; then
+    # Decode 是纯消费者：mooncake_d.json 零贡献（官方警告 D 预留池内存会
+    # rtsHostRegister 失败并挤占引擎主机内存）
+    export PYTHONHASHSEED=0
+    export MOONCAKE_CONFIG_PATH="$DEPLOY_DIR/kv_pool/mooncake_d.json"
+    KV_TRANSFER_CONFIG='{
+        "kv_connector":"MultiConnector",
+        "kv_role":"kv_consumer",
+        "kv_port":"'"$KV_CONSUMER_PORT"'",
+        "engine_id":"1",
+        "kv_connector_extra_config":{
+            "connectors":[
+                {
+                    "kv_connector":"MooncakeHybridConnector",
+                    "kv_role":"kv_consumer",
+                    "kv_port":"'"$KV_CONSUMER_PORT"'",
+                    "kv_connector_extra_config":{
+                        "prefill":{"dp_size":'"$PREFILL_DP_SIZE"',"tp_size":'"$PREFILL_TP_SIZE"'},
+                        "decode":{"dp_size":'"$DECODE_DP_SIZE"',"tp_size":'"$DECODE_TP_SIZE"'}
+                    }
+                },
+                {
+                    "kv_connector":"AscendStoreConnector",
+                    "kv_role":"kv_consumer",
+                    "kv_connector_extra_config":{
+                        "backend":"mooncake",
+                        "lookup_rpc_port":"0",
+                        "use_layerwise":false
+                    }
+                }
+            ]
+        }
+    }'
+else
+    KV_TRANSFER_CONFIG='{
+        "kv_connector":"MooncakeHybridConnector",
+        "kv_role":"kv_consumer",
+        "kv_port":"'"$KV_CONSUMER_PORT"'",
+        "kv_connector_extra_config":{
+            "prefill":{"dp_size":'"$PREFILL_DP_SIZE"',"tp_size":'"$PREFILL_TP_SIZE"'},
+            "decode":{"dp_size":'"$DECODE_DP_SIZE"',"tp_size":'"$DECODE_TP_SIZE"'}
+        }
+    }'
+fi
+
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port "$2" \
@@ -71,15 +118,7 @@ vllm serve "$MODEL_PATH" \
     --quantization "$QUANTIZATION" \
     --speculative-config '{"num_speculative_tokens":5,"method":"dspark","enforce_eager":true}' \
     --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
-    --kv-transfer-config '{
-        "kv_connector":"MooncakeHybridConnector",
-        "kv_role":"kv_consumer",
-        "kv_port":"'"$KV_CONSUMER_PORT"'",
-        "kv_connector_extra_config":{
-            "prefill":{"dp_size":4,"tp_size":4},
-            "decode":{"dp_size":8,"tp_size":2}
-        }
-    }' \
+    --kv-transfer-config "$KV_TRANSFER_CONFIG" \
     --engram-config '{"cpu_offload":true,"dp_shared_memory":true}' \
     --additional-config '{
         "ascend_compilation_config":{

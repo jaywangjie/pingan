@@ -21,15 +21,15 @@ else
 fi
 export LOCAL_IP
 
-if [ ! -f "$DEPLOY_DIR/kv_pool/mooncake.json" ]; then
-    echo "[WARN] $DEPLOY_DIR/kv_pool/mooncake.json 不存在，请先运行 kv_pool/start_mooncake_master.sh 生成" >&2
+if [ "${ENABLE_KV_POOL:-0}" = "1" ] && [ ! -f "$DEPLOY_DIR/kv_pool/mooncake_d.json" ]; then
+    echo "[WARN] $DEPLOY_DIR/kv_pool/mooncake_d.json 不存在，请先运行 kv_pool/start_mooncake_master.sh 生成" >&2
 fi
 
 echo "=============================================="
 echo " 1P1D+KVPool  Decode： $LOCAL_IP"
 echo " 布局：        DP${DECODE_DP_SIZE} / TP${DECODE_TP_SIZE}（16 逻辑设备）"
 echo " API 端口：    ${ENGINE_START_PORT}-$((ENGINE_START_PORT + DECODE_DP_SIZE - 1))"
-echo " KV Pool：     ${MOONCAKE_CONFIG_PATH:-$DEPLOY_DIR/kv_pool/mooncake.json}"
+echo " KV Pool：     ENABLE_KV_POOL=${ENABLE_KV_POOL:-0}（1=开，D 用 kv_pool/mooncake_d.json 纯消费者）"
 echo " 模型：        $MODEL_PATH"
 echo "=============================================="
 

@@ -7,6 +7,11 @@
 2. **增加 Mooncake Master**（元数据中枢，跑在 D 节点容器内）
 3. **端口全部错开**（见下表），与 4P1D 可共存于同一批机器（但 NPU 互斥，见 §2）
 
+> **池化状态（2026-11-17）**：按官方 11-11 更新配方重试中——P/D 双配置（D 纯消费者
+> 0/0）、P 侧 `local_buffer_size=1GB`、master `--client_ttl=120`，SSD 卸载层暂不开。
+> 由 `config.sh` 的 **`ENABLE_KV_POOL`** 控制：`1`=开池化（默认），`0`=回退纯 PD
+> （已验证稳定形态，等价 4P1D 单对版）。改动该值后需从 master 开始整体重启。
+
 ## 1. 拓扑与端口
 
 | 节点 | 角色 | IP | 布局 | 引擎 API | KV 端口 |
@@ -53,7 +58,8 @@
 ```
 
 - P→D 传输与 4P1D 相同（MooncakeHybridConnector）
-- **新增**：可复用前缀同时写入 Mooncake 池（每节点 `24GB`，可在 config.sh 调）
+- **新增**：可复用前缀同时写入 Mooncake 池（**仅 P 侧贡献容量**，每 rank `24GB` 可调；
+  D 侧按官方配方为纯消费者——D 预留池内存会 `rtsHostRegister` 失败并挤占引擎主机内存）
 - 下次同前缀请求：P 先查池 → 命中则跳过大部分 prefill → TTFT 大幅下降
 - **代理无需会话粘性**：池是全引擎共享的，轮询分发也能命中（这是池化相对本地前缀缓存的核心优势）
 - `use_layerwise` 必须保持 `false`（V4.1-Flash 的 CED 混合注意力不支持 layerwise）

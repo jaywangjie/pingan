@@ -36,10 +36,13 @@ DP_RPC_PORT="${DP_RPC_PORT:-13321}"              # DP 协调（4P1D 用 12321）
 KV_PRODUCER_PORT="${KV_PRODUCER_PORT:-32000}"    # Mooncake KV 生产（4P1D 用 30000）
 KV_CONSUMER_PORT="${KV_CONSUMER_PORT:-32100}"    # Mooncake KV 消费（4P1D 用 30100）
 
-# ---- KV Cache Pool（Mooncake 后端）--------------------------------------------
+# ---- KV Cache Pool（Mooncake 后端，官方 2026-11-11 更新配方）------------------
+# 1=开池化（P 贡献容量 + D 纯消费者双配置）；0=回退纯 PD 分离（已验证稳定）
+ENABLE_KV_POOL="${ENABLE_KV_POOL:-1}"
 MOONCAKE_MASTER_IP="${MOONCAKE_MASTER_IP:-$D1_IP}"   # master 放 D 节点容器内
 MOONCAKE_MASTER_PORT="${MOONCAKE_MASTER_PORT:-50088}"
-MOONCAKE_SEGMENT_SIZE="${MOONCAKE_SEGMENT_SIZE:-24GB}"  # 每节点贡献的池容量
+MOONCAKE_SEGMENT_SIZE="${MOONCAKE_SEGMENT_SIZE:-24GB}"  # P 侧每 rank 贡献池容量（D 侧固定 0）
+MOONCAKE_TENANT_ID="${MOONCAKE_TENANT_ID:-default}"     # 两侧必须一致
 
 # ---- 并行布局（与 4P1D 的单台布局一致）----------------------------------------
 PREFILL_DP_SIZE=4

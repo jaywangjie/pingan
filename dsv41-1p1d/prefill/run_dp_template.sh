@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# DeepSeek-V4.1-Flash-1017 1P1D —— Prefill 模板（DP4/TP4）【稳定版：暂关池化】
+# DeepSeek-V4.1-Flash-1017 1P1D —— Prefill 模板（DP4/TP4）
 # 由 launch_online_dp.py 按 7 个位置参数调用：
 #   $1: 本 rank 可见 NPU ID（如 0,1,2,3）  $2: API 端口（8100-8103）
 #   $3: 全局 DP size（4）                  $4: 全局 DP rank（0-3）
 #   $5: DP 协调地址（本机 IP）             $6: DP 协调端口（13321）
 #   $7: TP size（4）
 # -----------------------------------------------------------------------------
-# KV Pool 状态（2026-11-17 排障结论，详见 DEPLOYMENT_RECORD_1P1D.md）：
+# KV Pool 实验矩阵（详见 DEPLOYMENT_RECORD_1P1D.md）：
 #   - 原始配置：池写入 HBM→DRAM 触发 107000/ChannelCreate，85 分钟后引擎雪崩
 #   - ACL_OP_INIT_MODE=1：治好雪崩（保留）
-#   - ASCEND_ENABLE_USE_FABRIC_MEM=1：与驱动 25.2.1×CANN 配对不兼容，
-#     real_client 创建 20 连败、引擎 init 失败（已注释，待驱动/镜像升级后再试）
-#   - 结论：当前配对下 MultiConnector 池写入必失败(-800)，暂退回纯
-#     MooncakeHybridConnector（与 4P1D 已验证配置一致），本地前缀缓存仍生效
+#   - ASCEND_ENABLE_USE_FABRIC_MEM=1：与驱动 25.2.1×CANN 配对不兼容（已弃用）
+#   - 2026-11-17 官方新配方重试（config.sh ENABLE_KV_POOL=1）：
+#     ① D 侧改纯消费者 mooncake_d.json（0/0，官方警告 D 预留池内存会
+#        rtsHostRegister 失败）② P 侧 local_buffer_size=1GB
+#     ③ master 加 --client_ttl=120（防慢编译 worker 被踢）
+#   - 回退：config.sh 设 ENABLE_KV_POOL=0 → 纯 PD（已验证稳定形态）
 # =============================================================================
 set -euo pipefail
 unset https_proxy http_proxy
@@ -52,6 +54,51 @@ export ACL_OP_INIT_MODE=1
 # export MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=1073741824
 # export ASCEND_GLOBAL_RESOURCE_CONFIG='{"comm_resource_config.protocol_desc":["hccs:device"],"store.comm_resource_config.protocol_desc":["roce:device"]}'
 
+# ---- KV Cache Pool：按 config.sh 的 ENABLE_KV_POOL 选择连接器形态 ------------
+if [ "${ENABLE_KV_POOL:-0}" = "1" ]; then
+    # 池键由块哈希派生，两侧 PYTHONHASHSEED 必须同为 0，否则查找永远不命中
+    export PYTHONHASHSEED=0
+    export MOONCAKE_CONFIG_PATH="$DEPLOY_DIR/kv_pool/mooncake.json"
+    KV_TRANSFER_CONFIG='{
+        "kv_connector":"MultiConnector",
+        "kv_role":"kv_producer",
+        "kv_port":"'"$KV_PRODUCER_PORT"'",
+        "engine_id":"0",
+        "kv_connector_extra_config":{
+            "connectors":[
+                {
+                    "kv_connector":"MooncakeHybridConnector",
+                    "kv_role":"kv_producer",
+                    "kv_port":"'"$KV_PRODUCER_PORT"'",
+                    "kv_connector_extra_config":{
+                        "prefill":{"dp_size":'"$PREFILL_DP_SIZE"',"tp_size":'"$PREFILL_TP_SIZE"'},
+                        "decode":{"dp_size":'"$DECODE_DP_SIZE"',"tp_size":'"$DECODE_TP_SIZE"'}
+                    }
+                },
+                {
+                    "kv_connector":"AscendStoreConnector",
+                    "kv_role":"kv_producer",
+                    "kv_connector_extra_config":{
+                        "backend":"mooncake",
+                        "lookup_rpc_port":"0",
+                        "use_layerwise":false
+                    }
+                }
+            ]
+        }
+    }'
+else
+    KV_TRANSFER_CONFIG='{
+        "kv_connector":"MooncakeHybridConnector",
+        "kv_role":"kv_producer",
+        "kv_port":"'"$KV_PRODUCER_PORT"'",
+        "kv_connector_extra_config":{
+            "prefill":{"dp_size":'"$PREFILL_DP_SIZE"',"tp_size":'"$PREFILL_TP_SIZE"'},
+            "decode":{"dp_size":'"$DECODE_DP_SIZE"',"tp_size":'"$DECODE_TP_SIZE"'}
+        }
+    }'
+fi
+
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port "$2" \
@@ -85,12 +132,4 @@ vllm serve "$MODEL_PATH" \
         "enable_flashcomm1":false,
         "multistream_overlap_shared_expert":false
     }' \
-    --kv-transfer-config '{
-        "kv_connector":"MooncakeHybridConnector",
-        "kv_role":"kv_producer",
-        "kv_port":"'"$KV_PRODUCER_PORT"'",
-        "kv_connector_extra_config":{
-            "prefill":{"dp_size":4,"tp_size":4},
-            "decode":{"dp_size":8,"tp_size":2}
-        }
-    }'
+    --kv-transfer-config "$KV_TRANSFER_CONFIG"
