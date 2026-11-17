@@ -80,7 +80,7 @@
 步骤 5  Decode         005 容器内:  nohup bash start_decode_node.sh > decode.log 2>&1 &
 步骤 6  Prefill        001 容器内:  nohup bash start_prefill_node.sh > prefill.log 2>&1 &
 步骤 7  等就绪         verify_service.sh wait（12 个引擎全 200）
-步骤 8  代理           001 容器内:  nohup bash start_proxy.sh > proxy.log 2>&1 &（会校验 master 存活）
+步骤 8  代理           001 容器内:  nohup bash start_proxy.sh > proxy.log 2>&1 &（池化开时才校验 master 存活）
 步骤 9  验证           verify_service.sh smoke    # 基本冒烟
                         verify_service.sh pooltest # 池化命中测试（关键！）
 ```

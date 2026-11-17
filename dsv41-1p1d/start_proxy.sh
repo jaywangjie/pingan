@@ -22,12 +22,16 @@ if [ -z "$PROXY" ]; then
 fi
 echo "[INFO] 代理脚本：$PROXY"
 
-# ---- 确认 mooncake master 存活（KV Pool 生效的前提）------------------------
-if timeout 2 bash -c "exec 3<>/dev/tcp/$MOONCAKE_MASTER_IP/$MOONCAKE_MASTER_PORT" 2>/dev/null; then
-    echo "[OK] Mooncake master 可达（$MOONCAKE_MASTER_IP:$MOONCAKE_MASTER_PORT）"
+# ---- 确认 mooncake master 存活（仅 KV Pool 模式需要；纯 PD 无池不依赖 master）----
+if [ "${ENABLE_KV_POOL:-0}" = "1" ]; then
+    if timeout 2 bash -c "exec 3<>/dev/tcp/$MOONCAKE_MASTER_IP/$MOONCAKE_MASTER_PORT" 2>/dev/null; then
+        echo "[OK] Mooncake master 可达（$MOONCAKE_MASTER_IP:$MOONCAKE_MASTER_PORT）"
+    else
+        echo "[ERROR] Mooncake master 不可达，请先在 ${MOONCAKE_MASTER_IP} 容器内运行 kv_pool/start_mooncake_master.sh" >&2
+        exit 1
+    fi
 else
-    echo "[ERROR] Mooncake master 不可达，请先在 ${MOONCAKE_MASTER_IP} 容器内运行 kv_pool/start_mooncake_master.sh" >&2
-    exit 1
+    echo "[INFO] ENABLE_KV_POOL=0（纯 PD），跳过 mooncake master 检查"
 fi
 
 # ---- 校验 12 个后端引擎 ------------------------------------------------------
