@@ -42,6 +42,14 @@ export ASCEND_RT_VISIBLE_DEVICES="$1"
 export PYTHONHASHSEED=0
 export MOONCAKE_CONFIG_PATH="$DEPLOY_DIR/kv_pool/mooncake.json"
 
+# ---- KV Cache Pool A3 必需（官方 kv_cache_pool_ascend_store 指南 A3 分支）----
+# fabric 通信内存 + 算子初始化模式：池写入(HBM→本机DRAM segment)的 HCCS 通道依赖，
+# 缺失时 aclrtIpcMemImportByKey 报 107000、ChannelCreate fail，最终击穿引擎
+export ACL_OP_INIT_MODE=1
+export ASCEND_ENABLE_USE_FABRIC_MEM=1
+# Store/PD 流量分离：PD 传输走 HCCS，池(Store)流量走 ROCE，不抢同一物理链路
+export ASCEND_GLOBAL_RESOURCE_CONFIG='{"comm_resource_config.protocol_desc":["hccs:device"],"store.comm_resource_config.protocol_desc":["roce:device"]}'
+
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port "$2" \
