@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # =============================================================================
-# DeepSeek-V4.1-Flash-1017 1P1D + KV Cache Pool —— Decode 模板（DP8/TP2）
+# DeepSeek-V4.1-Flash-1017 1P1D —— Decode 模板（DP8/TP2）【稳定版：暂关池化】
 # 由 launch_online_dp.py 按 7 个位置参数调用：
 #   $1: 本 rank 可见 NPU ID（如 0,1）  $2: API 端口（8100-8107）
 #   $3: 全局 DP size（8）              $4: 全局 DP rank（0-7）
 #   $5: DP 协调地址（D 节点 IP）       $6: DP 协调端口（13321）
 #   $7: TP size（2）
-# 与 4P1D 模板的差异：MultiConnector（Mooncake 传输 + AscendStore 池化）、
-#                     KV Pool 环境变量、端口 8100 段 / 32100 段
-# 其余参数与已验证跑通的 4P1D decode 模板完全一致
+# KV Pool 排障结论与启用条件见 prefill/run_dp_template.sh 头部注释
 # =============================================================================
 set -euo pipefail
 unset https_proxy http_proxy
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/usr/local/lib/"
 
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$DEPLOY_DIR/config.sh"
 
@@ -38,17 +36,13 @@ export HCCL_CONNECT_TIMEOUT="${HCCL_CONNECT_TIMEOUT:-1200}"
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export ASCEND_RT_VISIBLE_DEVICES="$1"
 
-# ---- KV Cache Pool（Mooncake 后端）必需环境变量 -----------------------------
-export PYTHONHASHSEED=0
-export MOONCAKE_CONFIG_PATH="$DEPLOY_DIR/kv_pool/mooncake.json"
-
-# ---- KV Cache Pool A3 必需（官方 kv_cache_pool_ascend_store 指南 A3 分支）----
-# fabric 通信内存 + 算子初始化模式：池写入(HBM→本机DRAM segment)的 HCCS 通道依赖，
-# 缺失时 aclrtIpcMemImportByKey 报 107000、ChannelCreate fail，最终击穿引擎
+# ---- 防 107000 雪崩（验证有效，保留）----------------------------------------
 export ACL_OP_INIT_MODE=1
-export ASCEND_ENABLE_USE_FABRIC_MEM=1
-# Store/PD 流量分离：PD 传输走 HCCS，池(Store)流量走 ROCE，不抢同一物理链路
-export ASCEND_GLOBAL_RESOURCE_CONFIG='{"comm_resource_config.protocol_desc":["hccs:device"],"store.comm_resource_config.protocol_desc":["roce:device"]}'
+# 以下两项在驱动 25.2.1 与镜像 CANN 配对下会使 mooncake real_client 创建失败，
+# 待驱动/镜像升级后按 DEPLOYMENT_RECORD_1P1D.md 的实验矩阵重新启用：
+# export ASCEND_ENABLE_USE_FABRIC_MEM=1
+# export MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=1073741824
+# export ASCEND_GLOBAL_RESOURCE_CONFIG='{"comm_resource_config.protocol_desc":["hccs:device"],"store.comm_resource_config.protocol_desc":["roce:device"]}'
 
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
@@ -78,31 +72,12 @@ vllm serve "$MODEL_PATH" \
     --speculative-config '{"num_speculative_tokens":5,"method":"dspark","enforce_eager":true}' \
     --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
     --kv-transfer-config '{
-        "kv_connector":"MultiConnector",
+        "kv_connector":"MooncakeHybridConnector",
         "kv_role":"kv_consumer",
         "kv_port":"'"$KV_CONSUMER_PORT"'",
-        "engine_id":"1",
         "kv_connector_extra_config":{
-            "connectors":[
-                {
-                    "kv_connector":"MooncakeHybridConnector",
-                    "kv_role":"kv_consumer",
-                    "kv_port":"'"$KV_CONSUMER_PORT"'",
-                    "kv_connector_extra_config":{
-                        "prefill":{"dp_size":4,"tp_size":4},
-                        "decode":{"dp_size":8,"tp_size":2}
-                    }
-                },
-                {
-                    "kv_connector":"AscendStoreConnector",
-                    "kv_role":"kv_consumer",
-                    "kv_connector_extra_config":{
-                        "lookup_rpc_port":"0",
-                        "backend":"mooncake",
-                        "use_layerwise":false
-                    }
-                }
-            ]
+            "prefill":{"dp_size":4,"tp_size":4},
+            "decode":{"dp_size":8,"tp_size":2}
         }
     }' \
     --engram-config '{"cpu_offload":true,"dp_shared_memory":true}' \
