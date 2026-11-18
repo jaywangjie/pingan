@@ -105,7 +105,7 @@
 | EP | 两侧各 EP16（单机） | P EP48（跨 3 台）/ D EP32（跨 2 台） |
 | dp-rank-start | 固定 0 | 按节点偏移：P 0/4/8，D 0/8 |
 | dp-address | 各自本机 | P 组=001，D 组=004 |
-| data-parallel-size-local | 未设（默认=组大小） | 显式 P 4 / D 8（多机组必须：本地 rank=全局 rank%本机数，Engram 共享内存按本机 rank 划分） |
+| data-parallel-size-local | 未设 | 同样未设（v0.30.0 外部 DP rank 下仅允许 1 或省略；Engram 本机共享走宿主机 IPC，不依赖该参数） |
 | 引擎/代理端口 | 8100 段 / 9100 | 8200 段 / 9200 |
 | KV 池化 | ENABLE_KV_POOL 开关（当前 0） | 无（纯 PD） |
 | 引擎参数 | — | 与 1P1D 稳定态完全一致（W8A8、V2 runner、DSpark5、ACL_OP_INIT_MODE=1 等） |

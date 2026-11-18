@@ -47,7 +47,6 @@ vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port "$2" \
     --data-parallel-size "$3" \
-    --data-parallel-size-local "$PREFILL_DP_SIZE_LOCAL" \
     --data-parallel-rank "$4" \
     --data-parallel-address "$5" \
     --data-parallel-rpc-port "$6" \
