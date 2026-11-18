@@ -3,8 +3,9 @@
 # DeepSeek-V4.1-Flash-1017 3P2D 集群全局配置（纯 PD 分离，无 KV 池）
 # 与 dsv41-4p1d / dsv41-1p1d 完全隔离：独立目录 / 独立容器 / 独立端口段
 #
-# 拓扑：P = 001/002/003（每台 DP4/TP4，全局 DP12/TP4，EP48 跨 3 台）
-#       D = 004/005    （每台 DP8/TP2，全局 DP16/TP2，EP32 跨 2 台）
+# 拓扑：P = 001/002/003（每台独立 DP4/TP4 组，EP16，与 4P1D 的 P 同构）
+#       D = 004/005    （每台独立 DP8/TP2 组，EP16，与 4P1D 的 D 同构）
+#       连接器布局 prefill{4,4}/decode{8,2}，与 4P1D/1P1D 已验证配置一致
 #
 # ⚠️ 资源互斥：本包占用全部 5 台的 16 卡。启动前需停掉所有机器上的
 #    4P1D 与 1P1D 引擎（只停进程，文件不动，可随时拉回）。
@@ -45,11 +46,14 @@ DP_RPC_PORT="${DP_RPC_PORT:-14321}"              # DP 协调（P 组=001、D 组
 KV_PRODUCER_PORT="${KV_PRODUCER_PORT:-34000}"    # Mooncake KV 生产（P 侧全局 rank 0-11）
 KV_CONSUMER_PORT="${KV_CONSUMER_PORT:-34100}"    # Mooncake KV 消费（D 侧全局 rank 0-15）
 
-# ---- 并行布局（全局 DP / 本机 DP / TP）------------------------------------------
-PREFILL_DP_SIZE=12          # 全局：3 台 × 4
+# ---- 并行布局（每台自成 DP 组，与 4P1D/1P1D 同构）-------------------------------
+# ⚠️ 2026-11-18 教训：CANN MoE dispatch 算子要求 moeExpertNum(128) 能被 EP 组大小
+#    （=DP×TP）整除。跨机全局 DP12×TP4=EP48 不整除 → 算子拒绝（error 561002）。
+#    每台独立 DP 组（EP16，128/16=8）无此问题，且免跨机 DP 协调。
+PREFILL_DP_SIZE=4           # 每台 P 独立组：DP4/TP4（EP16）
 PREFILL_DP_SIZE_LOCAL=4
 PREFILL_TP_SIZE=4
-DECODE_DP_SIZE=16           # 全局：2 台 × 8
+DECODE_DP_SIZE=8            # 每台 D 独立组：DP8/TP2（EP16）
 DECODE_DP_SIZE_LOCAL=8
 DECODE_TP_SIZE=2
 

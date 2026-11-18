@@ -6,16 +6,17 @@
 
 ## 1. 拓扑与端口
 
-| 节点 | 角色 | IP | 本机布局 | 全局 DP rank | 引擎 API |
+| 节点 | 角色 | IP | 布局（每台独立 DP 组） | DP rank | 引擎 API |
 | --- | --- | --- | --- | --- | --- |
-| 001 | P#1（**P 组 master**） | 192.168.0.4 | DP4/TP4 | 0-3 | 8200-8203 |
-| 002 | P#2 | 192.168.0.82 | DP4/TP4 | 4-7 | 8200-8203 |
-| 003 | P#3 | 192.168.0.42 | DP4/TP4 | 8-11 | 8200-8203 |
-| 004 | D#1（**D 组 master**） | 192.168.0.129 | DP8/TP2 | 0-7 | 8200-8207 |
-| 005 | D#2 | 192.168.0.204 | DP8/TP2 | 8-15 | 8200-8207 |
+| 001 | P#1 | 192.168.0.4 | DP4/TP4（EP16） | 0-3 | 8200-8203 |
+| 002 | P#2 | 192.168.0.82 | DP4/TP4（EP16） | 0-3 | 8200-8203 |
+| 003 | P#3 | 192.168.0.42 | DP4/TP4（EP16） | 0-3 | 8200-8203 |
+| 004 | D#1 | 192.168.0.129 | DP8/TP2（EP16） | 0-7 | 8200-8207 |
+| 005 | D#2 | 192.168.0.204 | DP8/TP2（EP16） | 0-7 | 8200-8207 |
 
-- **全局布局**：Prefill **DP12/TP4**（EP48，跨 001-003）+ Decode **DP16/TP2**（EP32，跨 004-005）
-- 两侧 `kv_connector_extra_config` 必须一致：`prefill{dp12,tp4} / decode{dp16,tp2}`
+- **每台自成 DP 组**（与 4P1D/1P1D 同构）：无跨机 DP 协调，节点可独立起停；
+  dp-address=本机 IP，14321 每台各自监听
+- 两侧 `kv_connector_extra_config` 一致：**`prefill{dp4,tp4} / decode{dp8,tp2}`**（= 4P1D 已验证布局）
 - 引擎共 **28 个**（P 12 + D 16）；唯一业务入口 = **001:9200** 代理
 
 | 用途 | 本包端口 | 4P1D（不冲突） | 1P1D（不冲突） |
@@ -57,11 +58,11 @@
 
 - P→D KV 传输：MooncakeHybridConnector 点对点，走 enp23s0f3，与 prefill 计算重叠
 - 多轮会话：P 侧本地前缀缓存（enable-prefix-caching）；跨引擎池化暂缺（见 1P1D 记录）
-- **与 4P1D 的架构差异——EP 跨机**：4P1D/1P1D 的 EP 组锁在单机 16 设备内（EP16），
-  本包 P 侧 EP48（跨 3 台）、D 侧 EP32（跨 2 台），MoE all-to-all 走业务网。
-  Decode 每 step 都有跨机 all-to-all（004↔005），**TPOT 表现需实测验证**——
-  这正是本包要回答的问题（官方 950DT 文档有 DP16 跨机宽 EP 先例）
-- 代理为官方轮询示例：16→28 个后端，无会话粘性
+- **EP 全部锁在单机内**（每台 EP16）：MoE all-to-all 走机内 HCCS，不跨机——
+  与 4P1D/1P1D 一致，无跨机 all-to-all 的 TPOT 风险
+  （2026-11-18 曾试过跨机全局组 P=DP12/TP4/D=DP16/TP2，P 侧 EP48 撞 CANN
+  整除约束失败，见 §7 FAQ，已回退同构模式）
+- 代理为官方轮询示例：28 个后端，无会话粘性
 
 ## 4. 部署步骤
 
@@ -73,18 +74,15 @@
 步骤 1  预检           5 台宿主机各跑 00_preflight_check.sh
 步骤 2  容器           5 台各跑 01_start_container.sh
 步骤 3  容器验证       5 台容器内各跑 02_verify_container.sh
-步骤 4  Decode 组      004 容器内:  nohup bash start_decode_node.sh > decode.log 2>&1 &
-                        （D 组 master 先起，等若干引擎开始就绪后即可起 005）
-                        005 容器内:  nohup bash start_decode_node.sh > decode.log 2>&1 &
-步骤 5  Prefill 组     001 容器内:  nohup bash start_prefill_node.sh > prefill.log 2>&1 &
-                        002/003 同理（P 组 master 001 先起）
+步骤 4  Decode         004、005 容器内各: nohup bash start_decode_node.sh > decode.log 2>&1 &
+步骤 5  Prefill        001、002、003 容器内各: nohup bash start_prefill_node.sh > prefill.log 2>&1 &
 步骤 6  等就绪         verify_service.sh wait（28 个引擎全 200）
 步骤 7  代理           001 容器内:  nohup bash start_proxy.sh > proxy.log 2>&1 &
 步骤 8  验证           verify_service.sh smoke
 ```
 
-启动顺序铁律：**D 组（004 先）→ P 组（001 先）→ 代理**。D 引擎 kv_consumer 起
-来后 P 的 kv_producer 才能握手；DP 组内 master 节点先起（协调端口 14321 在它上面）。
+顺序宽松：每台自成 DP 组、互不协调，**D 台和 P 台可按任意顺序/节奏起**（建议仍
+D 先 P 后：D 图捕获约 20 分钟，P 权重加载约 10 分钟）。全部 200 后再起代理。
 
 ## 5. 日常运维
 
@@ -101,20 +99,26 @@
 | 项 | 1P1D | 本包 |
 | --- | --- | --- |
 | 节点 | 001+005 | 001/002/003 + 004/005 |
-| 全局布局 | P DP4/TP4 + D DP8/TP2 | **P DP12/TP4 + D DP16/TP2** |
-| EP | 两侧各 EP16（单机） | P EP48（跨 3 台）/ D EP32（跨 2 台） |
-| dp-rank-start | 固定 0 | 按节点偏移：P 0/4/8，D 0/8 |
-| dp-address | 各自本机 | P 组=001，D 组=004 |
-| data-parallel-size-local | 未设 | 同样未设（v0.30.0 外部 DP rank 下仅允许 1 或省略；Engram 本机共享走宿主机 IPC，不依赖该参数） |
+| 布局 | P DP4/TP4 + D DP8/TP2 | **相同**（每台独立 DP 组，EP16） |
+| 连接器布局 | prefill{4,4} / decode{8,2} | **相同** |
+| 引擎数 | 12 | **28**（P 12 + D 16） |
 | 引擎/代理端口 | 8100 段 / 9100 | 8200 段 / 9200 |
 | KV 池化 | ENABLE_KV_POOL 开关（当前 0） | 无（纯 PD） |
 | 引擎参数 | — | 与 1P1D 稳定态完全一致（W8A8、V2 runner、DSpark5、ACL_OP_INIT_MODE=1 等） |
 
 ## 7. FAQ
 
-**Q: 某台 P/D 起不来，报 DP 协调连接失败？**
-确认组内 master（P=001，D=004）引擎先起、14321 未被占、防火墙放行；
-`--data-parallel-address` 两侧必须都填 master 的 IP（不是本机 IP）。
+**Q: 为什么不是跨机全局 DP 组（P=DP12、D=DP16）？—— 2026-11-18 实测翻车**
+CANN 的 MoE dispatch 算子要求 `moeExpertNum`（本模型该算子收到 128）**必须能被
+EP 组大小（=DP×TP）整除**：跨机 DP12×TP4=EP48，128%48≠0，引擎 init 时报
+`aclnnMoeDistributeDispatchV4 failed, error code 561002`。每台独立 DP 组
+（EP16，128/16=8）无此问题——4P1D/1P1D 一直是 EP16 所以从未触发。
+另：跨机组还有 5 分钟组队窗口（`Did not receive response from front-end process
+within 5 minutes`），同构模式下也一并消失。
+
+**Q: 某台起不来怎么查？**
+每台独立组，问题只在本机：看本机 prefill.log/decode.log 第一个 ERROR；
+14321 被占说明上一轮引擎没死干净（pkill 方括号版清理）。
 
 **Q: kv 传输握手失败 / decode 收不到 KV？**
 两侧 `kv_connector_extra_config` 布局必须一致（prefill dp12/tp4，decode dp16/tp2）；
